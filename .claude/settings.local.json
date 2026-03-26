@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls *.ini 2>/dev/null || ls platformio.ini 2>/dev/null && cat platformio.ini | grep -A5 \"default_envs\\\\|BTT_SKR\\\\|SKR_MINI\" | head -30)",
+      "Bash(ls ini/ && grep -l \"SKR_MINI\\\\|STM32F103\" ini/*.ini 2>/dev/null | head -5)",
+      "Bash(~/.platformio/penv/bin/platformio pkg:*)",
+      "Bash(grep -n \"^#### Motion\\\\|^#### Stepper direction\\\\|^#### Probe\\\\|^#### Bed geometry\\\\|^#### Auto Bed\\\\|^#### Display\\\\|^---\\\\|^### \\\\`Marlin/Configuration_adv\" README.md)",
+      "Bash(grep -n \"^## License\\\\|^---$\" README.md | tail -5)"
+    ]
+  }
+}
