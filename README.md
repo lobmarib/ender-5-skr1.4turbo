@@ -218,24 +218,47 @@ A set of macros at the top of the file acts as a single place to toggle hardware
 
 #### Stepper direction
 
+The Ender-5 uses a **mirrored X coordinate system**: the X endstop is on the physical right side, so X=0 is at the right and X increases going left. This means `INVERT_X_DIR false` correctly homes the carriage rightward (toward the endstop) on negative steps. Y is similar — the endstop is at the rear, Y=0 is rear, Y increases toward the front.
+
 | Setting | Stock value | New value | Reason |
 |---|---|---|---|
-| `INVERT_X_DIR` | `false` | `true` | Matches the physical motor wiring on the Ender-5 X axis. |
-| `INVERT_Z_DIR` | `false` | `true` | Matches the physical motor wiring on the Ender-5 Z axis. |
-| `INVERT_E0_DIR` | `false` | `true` | Matches the physical motor wiring of the direct-drive extruder. |
+| `INVERT_X_DIR` | `false` | `false` | With the mirrored X coordinate, negative steps naturally move the carriage right toward the endstop. No inversion needed. |
+| `INVERT_Y_DIR` | `false` | `false` | Same reasoning as X. Negative steps move the bed toward the rear endstop. |
+| `INVERT_Z_DIR` | `false` | `true` | Motor wiring requires inversion so that positive Z steps raise the bed (increase nozzle-to-bed distance). |
+| `INVERT_E0_DIR` | `false` | `true` | Motor wiring requires inversion for correct filament feed direction. |
+
+#### Endstop configuration
+
+| Setting | Stock value | New value | Reason |
+|---|---|---|---|
+| `USE_XMIN_PLUG` | enabled | enabled | X endstop is wired to the X-STOP (X_MIN) connector. |
+| `USE_YMIN_PLUG` | enabled | enabled | Y endstop is wired to the Y-STOP (Y_MIN) connector. |
+| `USE_ZMIN_PLUG` | enabled | enabled | The inductive probe is wired to the Z-STOP (Z_MIN) connector. |
+| `X_HOME_DIR` | `-1` | `-1` | Home to X_MIN (physical right side). |
+| `Y_HOME_DIR` | `-1` | `-1` | Home to Y_MIN (physical rear). |
+| `Z_HOME_DIR` | `-1` | `-1` | Home downward (probe triggers before nozzle reaches bed). |
+| `Z_MIN_ENDSTOP_INVERTING` | `false` | `true` | The inductive probe interface board inverts the output signal. `true` corrects this so M119 shows OPEN when away from metal and TRIGGERED when near. |
+| `Z_MIN_PROBE_ENDSTOP_INVERTING` | `false` | `true` | Must match `Z_MIN_ENDSTOP_INVERTING` since both use the same Z-STOP pin. |
 
 #### Probe type and offset
 
+The probe is an **inductive sensor** mounted to the left of the hotend carriage (when viewed from the front of the printer).
+
+**Coordinate system note:** On the Ender-5, positive X = physically left (because the X endstop is on the right and X=0 is at the endstop). Therefore a probe that is to the **left** of the nozzle has a **positive X offset**.
+
 | Setting | Stock value | New value | Reason |
 |---|---|---|---|
-| `FIX_MOUNTED_PROBE` | disabled | **enabled** | Declares a probe that is permanently fixed to the carriage (no deploy/stow mechanism). Required for `AUTO_BED_LEVELING_BILINEAR` — without a probe type defined the sanity checker refuses to build. |
-| `NOZZLE_TO_PROBE_OFFSET` | `{ 10, 10, 0 }` | `{ -48, -10, 0 }` | Offset measured for the probe mount used on this printer. |
+| `FIX_MOUNTED_PROBE` | disabled | **enabled** | Declares a probe permanently fixed to the carriage (no deploy/stow). Required for `AUTO_BED_LEVELING_BILINEAR`. |
+| `NOZZLE_TO_PROBE_OFFSET` | `{ 10, 10, 0 }` | `{ 46, 9, 0 }` | Probe is ~46 mm to the LEFT (+X) and ~9 mm toward the front (+Y) of the nozzle. Z component is a placeholder — calibrate with `M851` after first boot. |
+| `Z_PROBE_LOW_POINT` | `-2` | `-5` | Allows 5 mm of descent past the expected trigger point. Gives sufficient range for inductive probes mounted slightly above optimal height without risking a hard crash. |
 
 #### Bed geometry
 
 | Setting | Stock value | New value | Reason |
 |---|---|---|---|
-| `X_BED_SIZE` / `Y_BED_SIZE` | `200` | `220` | The Ender-5 has a 220 × 220 mm printable area. |
+| `X_BED_SIZE` | `200` | `216` | Physical X travel is limited to 216 mm — commanding X > 216 crashes the carriage into the left frame. `X_BED_SIZE` must equal `X_MAX_POS` to satisfy Marlin's sanity check. |
+| `Y_BED_SIZE` | `200` | `220` | The Ender-5 Y axis has the full 220 mm of travel. |
+| `X_MAX_POS` | `X_BED_SIZE` | `216` | Soft endstop — Marlin refuses to move the nozzle beyond this value. |
 | `Z_MAX_POS` | `200` | `300` | The Ender-5 Z travel is 300 mm. |
 
 #### Auto Bed Leveling
@@ -243,9 +266,11 @@ A set of macros at the top of the file acts as a single place to toggle hardware
 | Setting | Stock value | New value | Reason |
 |---|---|---|---|
 | `AUTO_BED_LEVELING_BILINEAR` | disabled | **enabled** | Enables bilinear mesh leveling with the fixed probe. |
-| `GRID_MAX_POINTS_X` | `3` | `5` | 5 × 5 = 25-point mesh for better leveling accuracy across the 220 mm bed. |
-| `MULTIPLE_PROBING` | disabled | `2` | Probes each mesh point twice and averages the results, reducing the effect of electrical noise or minor surface contamination on the mesh. |
-| `Z_SAFE_HOMING` | disabled | **enabled** | Moves XY to the probe position before homing Z, preventing the nozzle from contacting the bed at an unprobed corner. Required when using a fixed probe — Marlin raises a build error if this is omitted. |
+| `GRID_MAX_POINTS_X` | `3` | `5` | 5 × 5 = 25-point mesh for better leveling accuracy. |
+| `MULTIPLE_PROBING` | disabled | `2` | Probes each mesh point twice and averages the results, reducing the effect of electrical noise on the mesh. |
+| `PROBING_MARGIN` | `10` | `10` | Default 10 mm margin from all bed edges. Overridden on the left side by `PROBING_MARGIN_RIGHT`. |
+| `PROBING_MARGIN_RIGHT` | *(not set)* | `46` | Limits how close the probe gets to `X_MAX_BED` (the physical left side). With probe offset X=+46, the default margin would allow the probe to reach X=210 — too close to the left frame. Setting this to 46 limits probe maximum X to 174 mm, keeping the nozzle at ≤ 128 mm. |
+| `Z_SAFE_HOMING` | disabled | **enabled** | Moves XY to the probe position before homing Z, preventing the nozzle from contacting the bed at an unprobed corner. |
 
 #### Display
 
@@ -255,7 +280,7 @@ A set of macros at the top of the file acts as a single place to toggle hardware
 | `CR10_STOCKDISPLAY` | disabled | **enabled** | The Ender-5 uses the CR-10 stock display (EXP1 connector). |
 | `ENCODER_PULSES_PER_STEP` | disabled | `4` | The CR-10 stock rotary encoder generates 4 pulses per detent. Without this, each menu item requires turning the knob 4 steps instead of 1. |
 | `ENCODER_STEPS_PER_MENU_ITEM` | disabled | `1` | Pairs with `ENCODER_PULSES_PER_STEP` so one physical click advances exactly one menu item. |
-| `EEPROM_SETTINGS` | disabled | **enabled** | Allows saving configuration to flash with `M500`. Without this, the ABL mesh, Z offset, PID values and all runtime settings revert to firmware defaults on every power cycle, making ABL completely ineffective. |
+| `EEPROM_SETTINGS` | disabled | **enabled** | Allows saving configuration to flash with `M500`. Without this, the ABL mesh, Z offset, PID values and all runtime settings revert to firmware defaults on every power cycle. |
 | `SDSUPPORT` | disabled | **enabled** | Enables the SD card slot on the SKR Mini E3 V3.0. Without it the printer can only receive jobs over USB. |
 
 ---
@@ -293,22 +318,28 @@ Lower current reduces heat and noise without sacrificing torque at Ender-5 print
 | Setting | Stock value | New value | Reason |
 |---|---|---|---|
 | `CHOPPER_TIMING` | `CHOPPER_DEFAULT_12V` | `CHOPPER_DEFAULT_24V` | The SKR Mini E3 V3.0 runs on a 24 V supply; the 24 V chopper preset gives optimal performance. |
-| `HYBRID_THRESHOLD` | disabled | **enabled** | Automatically switches from silent StealthChop to spreadCycle above the configured speed threshold (X/Y: 100 mm/s, Z: 3 mm/s, E: 30 mm/s), combining quiet low-speed printing with full torque at high speed. |
-| `TMC_DEBUG` | disabled | **enabled** | Enables the `M122` G-code command to report live driver parameters (current, temperature, stallguard value) — useful for diagnostics. |
-| `DIAG_JUMPERS_REMOVED` | undefined | **defined** | Suppresses the build warning that fires when `SENSORLESS_HOMING` is disabled on a board that has DIAG pins wired to the endstop header. The SKR Mini E3 V3.0 routes DIAG signals through removable jumpers; with physical endstops in use those jumpers must be removed to avoid false triggers, and this define confirms that has been done. |
+| `HYBRID_THRESHOLD` | disabled | **enabled** | Automatically switches from silent StealthChop to spreadCycle above the configured speed threshold (X/Y: 100 mm/s, Z: 3 mm/s, E: 30 mm/s). |
+| `TMC_DEBUG` | disabled | **enabled** | Enables `M122` to report live driver parameters — useful for diagnostics. |
+| `DIAG_JUMPERS_REMOVED` | undefined | **defined** | Suppresses the build warning for boards with DIAG pins routed to endstop headers. The SKR Mini E3 V3.0 uses removable jumpers for DIAG; with physical endstops in use, those jumpers must be removed. |
+
+#### Hotend heatsink fan
+
+| Setting | Stock value | New value | Reason |
+|---|---|---|---|
+| `E0_AUTO_FAN_PIN` | `-1` (disabled) | `FAN1_PIN` | Assigns the hotend heatsink fan to the FAN1 header (PC7). The fan turns on automatically when the hotend exceeds `EXTRUDER_AUTO_FAN_TEMPERATURE` (50 °C) and off when it cools below. |
 
 #### Probing and first-layer adjustment
 
 | Setting | Stock value | New value | Reason |
 |---|---|---|---|
-| `BABYSTEPPING` | disabled | **enabled** | Allows adjusting the Z offset in real time while printing via the LCD menu, without stopping the print. Essential for dialling in the first layer after an ABL calibration. |
-| `BABYSTEP_ZPROBE_OFFSET` | disabled | **enabled** | Links babystepping to the `M851` Z probe offset. Adjustments made during a print are reflected in the stored offset so the change persists after `M500`. |
+| `BABYSTEPPING` | disabled | **enabled** | Allows adjusting the Z offset in real time while printing via the LCD menu. |
+| `BABYSTEP_ZPROBE_OFFSET` | disabled | **enabled** | Links babystepping to the `M851` Z probe offset so adjustments persist after `M500`. |
 
 ---
 
 ## Optional Features (not enabled)
 
-The following settings were reviewed but left at their stock (disabled) values. Each one is a genuine improvement for this printer, but requires either additional hardware, per-filament calibration, or physical measurement before it can be used safely. Enable them when you are ready to go through the corresponding setup steps.
+The following settings were reviewed but left at their stock (disabled) values. Enable them when you are ready to go through the corresponding setup steps.
 
 ### `Marlin/Configuration.h`
 
@@ -316,13 +347,13 @@ The following settings were reviewed but left at their stock (disabled) values. 
 
 | Setting | How to enable | What it does | Setup required |
 |---|---|---|---|
-| `PIDTEMPBED` | Uncomment `#define PIDTEMPBED` | Switches the heated bed from bang-bang (full-on / full-off) to closed-loop PID control, giving tighter temperature stability and reducing power-supply ripple. | After enabling, run `M303 E-1 C8 S60` (autotune at 60 °C for 8 cycles), then `M500` to save. Re-tune whenever you change the bed surface or insulation. |
+| `PIDTEMPBED` | Uncomment `#define PIDTEMPBED` | Switches the heated bed from bang-bang to closed-loop PID control, giving tighter temperature stability. | Run `M303 E-1 C8 S60` (autotune at 60 °C for 8 cycles), then `M500`. |
 
 #### Motion quality
 
 | Setting | How to enable | What it does | Setup required |
 |---|---|---|---|
-| `S_CURVE_ACCELERATION` | Uncomment `#define S_CURVE_ACCELERATION` | Replaces the trapezoidal velocity profile with a smooth S-curve, reducing the jerk at the start and end of acceleration phases. Lowers ringing without needing to reduce speed. | None — enable and test. If artefacts appear, disable and investigate acceleration values first. |
+| `S_CURVE_ACCELERATION` | Uncomment `#define S_CURVE_ACCELERATION` | Replaces trapezoidal velocity profile with a smooth S-curve, reducing ringing without reducing speed. | None — enable and test. |
 
 ### `Marlin/Configuration_adv.h`
 
@@ -330,178 +361,148 @@ The following settings were reviewed but left at their stock (disabled) values. 
 
 | Setting | How to enable | What it does | Setup required |
 |---|---|---|---|
-| `LIN_ADVANCE` | Uncomment `#define LIN_ADVANCE` and set `LIN_ADVANCE_K 0` as a starting point | Compensates for pressure build-up in the nozzle at the start and end of lines, reducing blobs at corners and improving dimensional accuracy on perimeters. | Requires per-filament K-factor calibration using the [Marlin LA calibration pattern](https://marlinfw.org/tools/lin_advance/k-factor.html). A wrong K value makes print quality worse, so do not enable without calibrating. |
+| `LIN_ADVANCE` | Uncomment `#define LIN_ADVANCE`, set `LIN_ADVANCE_K 0` | Compensates for nozzle pressure build-up, reducing blobs at corners. | Per-filament K-factor calibration required. |
 
 #### Resilience
 
 | Setting | How to enable | What it does | Setup required |
 |---|---|---|---|
-| `POWER_LOSS_RECOVERY` | Uncomment `#define POWER_LOSS_RECOVERY` in `Configuration_adv.h` | Saves print state to the SD card periodically so a print can be resumed after a power cut or accidental reset. | Requires `SDSUPPORT` (already enabled). The Ender-5 Z lead screw must not back-drive under gravity when power is cut — verify this before relying on recovery, otherwise the nozzle will crash into the print on resume. |
-| `FILAMENT_RUNOUT_SENSOR` | Uncomment `#define FILAMENT_RUNOUT_SENSOR` | Pauses the print and parks the head when the filament sensor detects a runout or break. | Requires a filament runout sensor wired to the dedicated pin on the SKR Mini E3 V3.0 (`E0-STOP` header). Also requires `ADVANCED_PAUSE_FEATURE` (see below). |
-| `ADVANCED_PAUSE_FEATURE` | Uncomment `#define ADVANCED_PAUSE_FEATURE` | Enables the guided filament-change (`M600`) and park-on-pause workflows used by runout recovery and manual colour changes. | No additional hardware needed, but `NOZZLE_PARK_FEATURE` must also be enabled. Configure `FILAMENT_CHANGE_UNLOAD_LENGTH` and `FILAMENT_CHANGE_LOAD_LENGTH` to match your bowden/direct-drive path length. |
+| `POWER_LOSS_RECOVERY` | Uncomment `#define POWER_LOSS_RECOVERY` | Saves print state to SD card so a print can resume after a power cut. | Verify the Z lead screw does not back-drive under gravity when power is cut. |
+| `FILAMENT_RUNOUT_SENSOR` | Uncomment `#define FILAMENT_RUNOUT_SENSOR` | Pauses the print when filament runs out. | Requires a sensor wired to the `E0-STOP` header and `ADVANCED_PAUSE_FEATURE`. |
+| `ADVANCED_PAUSE_FEATURE` | Uncomment `#define ADVANCED_PAUSE_FEATURE` | Enables guided filament-change (`M600`) and park-on-pause. | Requires `NOZZLE_PARK_FEATURE`. Configure load/unload lengths for your extruder path. |
 
 #### Resonance compensation
 
 | Setting | How to enable | What it does | Setup required |
 |---|---|---|---|
-| `INPUT_SHAPING_X` / `INPUT_SHAPING_Y` | Uncomment both `#define INPUT_SHAPING_X` and `#define INPUT_SHAPING_Y` in `Configuration_adv.h` | Applies a notch filter to cancel the printer's resonant frequency on each axis, greatly reducing ringing (ghosting) artefacts at higher speeds. Supported on the STM32G0B1 MCU of the SKR Mini E3 V3.0. | Requires measuring the resonant frequency of each axis. The easiest method is to print a ringing test tower and read the frequency from the pattern, or attach an ADXL345 accelerometer and run `M593` resonance measurement. Set `SHAPING_FREQ_X` and `SHAPING_FREQ_Y` to the measured values before enabling. |
+| `INPUT_SHAPING_X` / `INPUT_SHAPING_Y` | Uncomment both in `Configuration_adv.h` | Notch filter cancels the printer's resonant frequency, greatly reducing ringing at higher speeds. Supported on the STM32G0B1. | Measure resonant frequency per axis (print ringing test tower or use ADXL345 + `M593`). Set `SHAPING_FREQ_X/Y` before enabling. |
 
 ---
 
 ## Calibration Reference
 
-This section explains the origin of each calibration value in the firmware, identifies what is mathematically confirmed, what is empirically calibrated and should be re-verified on the new board, and what must be measured from scratch.
-
 ### Steps per mm
 
 #### X and Y axes — GT2 belt / 20-tooth pulley / TMC2209
 
-The theoretical steps/mm for GT2 timing belt with a 20-tooth pulley is:
-
 ```
-Steps/mm = (motor steps/rev × microstepping) / (pulley teeth × belt pitch)
-         = (200 × 16) / (20 × 2 mm)
-         = 3200 / 40
-         = 80.000 steps/mm
+Steps/mm = (200 × 16) / (20 × 2 mm) = 80.000 steps/mm  (theoretical)
+Firmware: X=79.50, Y=79.80  (±0.6% — within normal belt/pulley variation)
 ```
 
-The firmware uses `79.50` (X) and `79.80` (Y), which are 0.625 % and 0.25 % below the theoretical value respectively. This is normal: minor variation in belt tension, actual pulley pitch diameter, and GT2 tooth geometry routinely shift the true value by ±1 %. These numbers were measured on the previous SKR 1.4 Turbo board and are likely correct, but should be re-verified after assembly using the standard 100 mm extrusion calibration procedure:
+Re-verify with a calliper: command `G0 X100`, measure actual travel, compute `current_steps × 100 / actual_mm`. Save with `M92 X<value> Y<value>` then `M500`.
 
-1. Mark a reference point on the belt or measure axis position with a calliper.
-2. Command `G0 X100` (or Y100) from a known origin.
-3. Measure actual travel. New steps/mm = `current_steps × 100 / actual_mm`.
-4. Save with `M92 X<value> Y<value>` then `M500`.
-
-#### Z axis — TR8×4 lead screw (4 mm lead, 8 mm pitch)
+#### Z axis — TR8×4 lead screw (4 mm lead)
 
 ```
-Steps/mm = (motor steps/rev × microstepping) / lead
-         = (200 × 16) / 4 mm
-         = 3200 / 4
-         = 800.000 steps/mm
+Steps/mm = (200 × 16) / 4 mm = 800.000 steps/mm  (mathematically exact)
 ```
 
-The firmware value `800` is **mathematically exact**. No re-verification is required unless the lead screw is replaced.
+No re-verification needed unless the lead screw is replaced.
 
-> Note: "TR8×4" means 8 mm pitch, 2 starts, 4 mm lead. Confirm the lead screw spec if in doubt — a TR8×8 screw (8 mm lead, single start) would require 400 steps/mm instead.
+#### E axis — direct drive MK8 gear
 
-#### E axis (extruder) — direct drive MK8 gear
+Firmware uses `93 steps/mm` (effective drive diameter ≈ 10.95 mm, consistent with Creality MK8). Verify before printing:
 
-The firmware uses `93 steps/mm`. Back-calculating the effective drive gear diameter:
-
-```
-Circumference = (motor steps/rev × microstepping) / steps_per_mm
-              = (200 × 16) / 93
-              = 34.41 mm/rev
-
-Effective diameter = circumference / π = 34.41 / 3.1416 ≈ 10.95 mm
-```
-
-A 10.95 mm effective diameter is consistent with a standard Creality MK8 drive gear (~11 mm). This is a calibrated value from the previous board and is a reasonable starting point, but **must be re-verified physically** before printing, because:
-
-- The actual grip point on an MK8 gear depends on filament diameter and the exact gear profile.
-- TMC2209 microstepping interpolation is handled identically to the previous board, so the value should transfer, but extruder calibration takes only 10 minutes and eliminates a major source of under/over-extrusion.
-
-**E-steps calibration procedure:**
-
-1. Mark the filament 100 mm and 120 mm from the extruder entry point.
-2. Command `G1 E100 F100` (cold — release tension first).
-3. Measure the distance from the entry point to the remaining mark. Actual extruded = 120 mm − remaining distance.
-4. New E steps = `93 × 100 / actual_mm`. Save with `M92 E<value>` then `M500`.
+1. Mark filament 100 mm and 120 mm from extruder entry.
+2. `G1 E100 F100` (cold, tension released).
+3. New steps = `93 × 100 / actual_mm`. Save with `M92 E<value>` then `M500`.
 
 ---
 
 ### Probe offsets
 
-#### X offset: −48 mm
+#### Coordinate system
 
-The probe is mounted 48 mm to the left of the nozzle. This has a direct effect on bed coverage:
+The Ender-5 X axis is **mirrored**: the endstop is on the physical right side, so X=0 is at the right and positive X moves the carriage left. As a result:
 
-```
-Probe can reach X_MIN when nozzle is at: X_MIN_POS + 48 = 0 + 48 = 48 mm
-Probe can reach X_MAX when nozzle is at: X_MAX_POS − 0 = 220 mm → probe reaches 220 − 48 = 172 mm
+- A probe to the **physical left** of the nozzle has a **positive X offset** in firmware.
+- A probe to the **physical front** of the nozzle has a **positive Y offset** in firmware (Y=0 is at the rear endstop).
 
-Probed X range: [48 → 172] = 124 mm
-Unprobed right strip: 220 − 172 = 48 mm (21.8 % of bed width)
-```
-
-> The right ~48 mm strip is not directly sampled. Marlin extrapolates the mesh beyond the probed area using the gradient of the nearest measured points. This is usually acceptable, but if the right edge of your first layer looks different from the centre, physically re-centering the probe mount (or shifting the mesh inward) is the correct fix.
-
-**The Z offset must always be measured fresh** — it depends on the exact mounting height of the probe above the nozzle. Run `M851 Z0`, deploy manually, home Z, then use `BABYSTEP_ZPROBE_OFFSET` (or `M851 Z<value>` + `M500`) to dial in the offset until a sheet of paper drags with light resistance under the nozzle.
-
-#### Y offset: −10 mm
-
-The probe is 10 mm in front of the nozzle. Y coverage:
+#### X offset: +46 mm
 
 ```
-Probe can reach Y_MIN when nozzle is at: 0 + 10 = 10 mm
-Probe can reach Y_MAX when nozzle is at: 220 mm → probe reaches 220 − 10 = 210 mm
+Probe min X reachable: X_MIN_POS + offset.x = 0 + 46 = 46 mm  (nozzle at X=0)
+Probe max X reachable: limited by PROBING_MARGIN_RIGHT=46 → X_MAX_BED − 46 = 216 − 46 = 170 mm
+                       (nozzle at 170 − 46 = 124 mm)
 
-Probed Y range: [10 → 210] = 200 mm (full bed depth minus 10 mm margins)
+Probed X range: [46 → 170] = 124 mm
+Unprobed right strip: ~46 mm (probe physically cannot reach the right side of the bed
+                      without the nozzle going past the right soft endstop)
 ```
 
-Y coverage is complete. No extrapolation required.
+#### Y offset: +9 mm
+
+```
+Probe min Y: Y_MIN_BED + PROBING_MARGIN + offset.y = 0 + 10 + 9 = 19 mm  (nozzle at 10 mm)
+Probe max Y: Y_MAX_BED − PROBING_MARGIN + offset.y = 220 − 10 + 9 = 219 mm → clamped to 220
+
+Probed Y range: [19 → 210] = ~191 mm
+```
 
 #### Z offset: 0 (placeholder)
 
-The Z offset in the firmware (`NOZZLE_TO_PROBE_OFFSET` Z component) is `0` and is a **placeholder only**. The actual value must be measured on the physical printer as described above.
+The Z component of `NOZZLE_TO_PROBE_OFFSET` is `0` and must be calibrated on the physical printer. Procedure:
+
+1. `M851 Z0` — clear any stored offset.
+2. `G28` — home all axes.
+3. Use `BABYSTEP_ZPROBE_OFFSET` (LCD → Tune → Z Offset) while printing a first-layer skirt to dial in the height until a sheet of paper drags with light resistance under the nozzle.
+4. `M500` — save.
 
 ---
 
 ### Motor directions
 
-All four axes are set to `INVERT_*_DIR true`. These values were carried over from the previous SKR 1.4 Turbo build. **Verify all directions on first boot before any ABL or long print:**
+| Axis | `INVERT_*_DIR` | Rationale |
+|------|---------------|-----------|
+| X | `false` | Mirrored coordinate (X=0 at right endstop): negative steps naturally move the carriage right toward the endstop. No inversion needed. |
+| Y | `false` | Same reasoning: Y=0 at rear endstop, negative steps move the bed rearward toward the endstop. |
+| Z | `true` | Motor wiring requires inversion so that positive Z steps raise the bed (increase nozzle-to-bed clearance). |
+| E0 | `true` | Motor wiring requires inversion for correct filament feed direction. |
 
-1. Home each axis individually: `G28 X`, `G28 Y`, `G28 Z`.
-2. Watch that the motor moves toward the endstop, not away.
-3. If an axis moves the wrong way, toggle its `INVERT_*_DIR` in `Configuration.h`, recompile, and re-flash.
-4. Never command an axis to move without watching it — a wrong direction on Z can crash the nozzle into the bed.
+Verify on first boot before any ABL or long print:
+
+1. `G28 X` — carriage must move toward the right endstop.
+2. `G28 Y` — bed must move toward the rear endstop.
+3. `G28 Z` — bed must move downward (away from the probe) until the probe triggers.
+4. If any axis moves the wrong way, toggle its `INVERT_*_DIR`, recompile, and re-flash.
 
 ---
 
 ### Max feedrate
 
-`DEFAULT_MAX_FEEDRATE { 500, 500, 10, 50 }` (mm/s for X, Y, Z, E)
+`DEFAULT_MAX_FEEDRATE { 500, 500, 10, 50 }` (mm/s — ceiling values, not print speeds)
 
-These are **ceiling values** — the printer will never exceed them regardless of what the slicer requests. They do not affect print speed directly; actual print speed is set in the slicer.
-
-| Axis | Value | Assessment |
-|------|-------|-----------|
-| X | 500 mm/s | Very conservative ceiling; a 220 mm Ender-5 X axis can physically move faster, but 500 mm/s is a safe upper bound for TMC2209 microstepping. |
-| Y | 500 mm/s | Same as X. The moving-bed mass on the Y axis means print speeds above 100–150 mm/s will cause quality degradation long before hitting this ceiling. |
-| Z | 10 mm/s | Appropriate for a 4 mm lead screw. The Ender-5 Z typically travels at 5–7 mm/s during probing; 10 mm/s is a safe ceiling. |
-| E | 50 mm/s | Sufficient for PLA/PETG direct drive. High-speed retraction testing should be done gradually. |
+| Axis | Value | Notes |
+|------|-------|-------|
+| X | 500 mm/s | Safe upper bound for TMC2209 microstepping on this frame. |
+| Y | 500 mm/s | Moving-bed mass limits practical print speed to 100–150 mm/s well before this ceiling. |
+| Z | 10 mm/s | Appropriate for a 4 mm lead screw. |
+| E | 50 mm/s | Sufficient for PLA/PETG direct drive. |
 
 ---
 
 ### Max acceleration
 
-`DEFAULT_MAX_ACCELERATION { 500, 500, 100, 5000 }` (mm/s² for X, Y, Z, E)
+`DEFAULT_MAX_ACCELERATION { 500, 500, 100, 5000 }` (mm/s²)
 
-| Axis | Value | Assessment |
-|------|-------|-----------|
-| X | 500 mm/s² | Conservative; reduces ghosting on the Ender-5 frame. Increase to 1000–1500 mm/s² if print speed is raised and no ringing artefacts appear. |
-| Y | 500 mm/s² | The moving bed is the heaviest axis. 500 mm/s² is at the upper edge for a stock Ender-5 bed carriage — watch for layer shifts on aggressive curves. Lower to 300 mm/s² if layer shifts occur; raise to 800 mm/s² only after confirming belt tension and idler bearings. |
-| Z | 100 mm/s² | Standard for a lead-screw Z. No reason to change. |
-| E | 5000 mm/s² | Standard for direct-drive. High E acceleration improves retraction sharpness without stressing the extruder mechanism at typical retraction distances (≤ 2 mm). |
+| Axis | Value | Notes |
+|------|-------|-------|
+| X | 500 mm/s² | Conservative; reduces ghosting. Raise to 1000–1500 mm/s² once ringing is characterised. |
+| Y | 500 mm/s² | Upper edge for the stock moving-bed carriage. Lower to 300 mm/s² if layer shifts occur. |
+| Z | 100 mm/s² | Standard for lead-screw Z. |
+| E | 5000 mm/s² | Standard for direct-drive. Improves retraction sharpness at ≤ 2 mm retraction distances. |
 
-**Calibration note:** If you enable `INPUT_SHAPING_X/Y` (see Optional Features), you can safely raise X/Y acceleration significantly after measuring and compensating the resonant frequency.
+Enabling `INPUT_SHAPING_X/Y` allows significantly higher X/Y acceleration after the resonant frequency is measured and compensated.
 
 ---
 
 ### Hotend PID
 
-The firmware uses Marlin's stock default PID values (`DEFAULT_Kp`, `DEFAULT_Ki`, `DEFAULT_Kd`) inherited from the configuration example. These were tuned for a different hotend and may cause temperature oscillation with the E3D assembly.
-
-**Run PID autotune before printing:**
+Run PID autotune before the first print — the firmware defaults are for a generic hotend and will oscillate with the E3D assembly:
 
 ```gcode
-M303 E0 C8 S240   ; autotune hotend at 240°C, 8 cycles
-```
-
-When the cycle completes, Marlin prints the recommended P/I/D values. Apply them with:
-
-```gcode
+M303 E0 C8 S240   ; autotune at 240 °C, 8 cycles
 M301 P<Kp> I<Ki> D<Kd>
 M500
 ```
